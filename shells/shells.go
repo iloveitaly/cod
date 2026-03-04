@@ -24,7 +24,7 @@ import (
 type ShellScriptGenerator interface {
 	GetPreamble() []string
 	GenerateCompletions(executableName string, completions []datastore.Completion) []string
-	ResetCommand(commandName string) []string
+	ResetCommand(executablePath string) []string
 }
 
 func NewShellScriptGenerator(shell string, codBinary string) (ShellScriptGenerator, error) {
@@ -57,6 +57,14 @@ type Zsh struct {
 func (z *Zsh) GetPreamble() (script []string) {
 	codBinaryVar := "__COD_BINARY=" + quoteArg(z.codCommandPath)
 	scriptText := `
+
+if ! whence -w compdef &> /dev/null ; then
+	echo 'cod: Completion system is not initialized.' >&2
+	echo 'cod: You need to call "compinit" before initializing cod.' >&2
+	echo 'cod: Check: https://zsh.sourceforge.io/Doc/Release/Completion-System.html' >&2
+	return
+fi
+
 __cod_recent_command_zsh=
 
 function __cod_preexec_zsh() {
@@ -134,15 +142,16 @@ type Fish struct {
 
 func (f *Fish) GenerateCompletions(executablePath string, _ []datastore.Completion) (shellScript []string) {
 	shellScript = []string{
-		fmt.Sprintf("complete --path %s --arguments '(__cod_complete_fish)'",
-			executablePath),
+		fmt.Sprintf("complete --command %s --arguments '(__cod_complete_fish)'",
+			quoteArg(filepath.Base(executablePath))),
 	}
 	return
 }
 
-func (f *Fish) ResetCommand(commandName string) (shellScript []string) {
+func (f *Fish) ResetCommand(executablePath string) (shellScript []string) {
 	return []string{
-		fmt.Sprintf("complete --command %s --erase", commandName),
+		fmt.Sprintf("complete --command %s --erase",
+			quoteArg(filepath.Base(executablePath))),
 	}
 }
 
@@ -210,7 +219,7 @@ cod_enable_trace=${cod_enable_trace-false}
 
 __cod_ref_count=0
 function __cod_ref_trace() {
-	if [ "$((__cod_ref_count))" -eq 0 ] ; then 
+	if [ "$((__cod_ref_count))" -eq 0 ] ; then
 		echo "--> inside: ${FUNCNAME[@]}" >&2
 		set -x
 	fi
@@ -219,7 +228,7 @@ function __cod_ref_trace() {
 
 function __cod_unref_trace() {
 	: $((__cod_ref_count--))
-	if [ "$__cod_ref_count" -eq 0 ] ; then 
+	if [ "$__cod_ref_count" -eq 0 ] ; then
 		set +x
 	fi
 }
@@ -329,7 +338,7 @@ function __cod_postexec_bash() {
 	return $old_exit_code
 }
 
-PROMPT_COMMAND="__cod_postexec_bash ; $PROMPT_COMMAND"
+PROMPT_COMMAND="__cod_postexec_bash;$PROMPT_COMMAND"
 `
 	lines = []string{
 		codBinaryVar,
